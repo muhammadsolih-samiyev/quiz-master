@@ -2,9 +2,9 @@
   "name": "smart-tester-bot",
   "version": "1.0.0",
   "description": "Smart Tester Platform - The Precision Build",
-  "main": "bot.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "telegraf": "^4.16.3",
