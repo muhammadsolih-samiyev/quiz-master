@@ -334,7 +334,7 @@ bot.start(async (ctx) => {
     }
 
     if (!(await isUserSubbed(ctx))) return ctx.reply("♻️ Botdan foydalanish uchun kanallarga a'zo bo'ling:", getJoinKeyboard());
-    return ctx.reply("👋 Xush kelibsiz! Menuni tanlang:", getMainMenu(ctx));
+    return ctx.reply("👋 Xush kelibsiz! Menuni tanlang", getMainMenu(ctx));
 });
 
 // ==========================================
@@ -417,7 +417,7 @@ bot.action(/view\|(gl|my)\|(.+)\|(\d+)/, (ctx) => {
     }
     b.push([Markup.button.callback('🔙 Orqaga', `list|${type}`)]);
 
-    return ctx.editMessageText(`📑 **Test:** ${test.title}\n❓ **Savollar soni:** ${test.questions.length}\n\nO'ynash uchun variantni tanlang:`, Markup.inlineKeyboard(b)).catch(() => { });
+    return ctx.editMessageText(`📑 **Test:** ${test.title}\n❓ **Savollar soni:** ${test.questions.length}\n\nO'ynash uchun variantni tanlang`, Markup.inlineKeyboard(b)).catch(() => { });
 });
 
 bot.action(/play\|(my|gl)\|(.+)\|(\d+)/, async (ctx) => {
@@ -522,8 +522,8 @@ bot.on('poll_answer', (ctx) => {
 // ==========================================
 // 9. CREATION, ADMIN & SYSTEM CALLBACKS
 // ==========================================
-bot.action('admin_create_gl', (ctx) => { ctx.answerCbQuery().catch(() => { }); ctx.session.step = 'name_gl'; return ctx.reply("📝 Umumiy test nomini kiriting:"); });
-bot.action('create_my_test', (ctx) => { ctx.answerCbQuery().catch(() => { }); ctx.session.step = 'name_my'; return ctx.reply("📝 Shaxsiy testingiz nomini kiriting:"); });
+bot.action('admin_create_gl', (ctx) => { ctx.answerCbQuery().catch(() => { }); ctx.session.step = 'name_gl'; return ctx.reply("📝 Umumiy test nomini kiriting"); });
+bot.action('create_my_test', (ctx) => { ctx.answerCbQuery().catch(() => { }); ctx.session.step = 'name_my'; return ctx.reply("📝 Shaxsiy testingiz nomini kiriting"); });
 
 bot.action(/addpoll\|(my|gl)\|(.+)/, (ctx) => { 
     ctx.answerCbQuery().catch(() => { }); 
