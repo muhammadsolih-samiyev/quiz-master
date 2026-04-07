@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const http = require('http');
 const { translate } = require('google-translate-api-x');
 
-// ⚠️ Security Note: Consider moving tokens to a .env file in production!
+// ⚠️ NEW TOKEN APPLIED
 const bot = new Telegraf('8539493439:AAFn20XbwTRQ2VxMhqo7-OvceViqPNxjAII');
 const MONGO_URI = 'mongodb+srv://btwimbennet_db_user:ApplePie22@cluster0.ai4welu.mongodb.net/?appName=Cluster0';
 
@@ -87,7 +87,10 @@ async function isUserSubbed(ctx) {
         try {
             const member = await ctx.telegram.getChatMember(ch, ctx.from.id);
             if (!['member', 'administrator', 'creator'].includes(member.status)) return false;
-        } catch (e) { return false; }
+        } catch (e) { 
+            console.error(`⚠️ KANAL XATOSI: Bot ${ch} kanalida admin emas!`);
+            return true; // Bypasses if bot is missing admin rights
+        }
     }
     return true;
 }
@@ -145,7 +148,6 @@ const myText = `📋 **Mening testlarim:**\n\nQuyidagi ro'yxatdan o'z testlaring
 // 4. CORE QUIZ HELPERS (COUNTDOWN & RESULTS)
 // ==========================================
 
-// Teskari sanoq tizimi
 async function showCountdown(ctx, title) {
     try {
         const msg = await ctx.reply(`⏳ **Boshlanmoqda:** ${title}\n\n5`, { parse_mode: 'Markdown' });
@@ -166,9 +168,11 @@ async function sendResults(matchId, ctx) {
     const m = activeMatches[matchId];
     if (!m) return;
 
-    let res = `🏁 **'${m.test.title}'** testi yakunlandi!\n\n`;
+    let res = `🏁 <b>'${m.test.title}'</b> testi yakunlandi!\n\n`;
     const sorted = Array.from(m.players).sort((a, b) => (m.scores[b] || 0) - (m.scores[a] || 0) || (m.times[a] || 0) - (m.times[b] || 0));
-    const total = m.test.questions.length;
+    
+    // Calculate total based on how many questions were ACTUALLY played (if stopped early)
+    const total = m.questionsPlayed || m.test.questions.length;
 
     if (m.isSolo) {
         const uid = Array.from(m.players)[0];
@@ -182,16 +186,16 @@ async function sendResults(matchId, ctx) {
 
         let emoji = percent >= 80 ? '🏆' : percent >= 50 ? '👍' : '💪';
         
-        res += `👤 **Ishtirokchi:** ${m.usernames[uid]}\n\n`;
-        res += `📊 **Umumiy savollar:** ${total} ta\n`;
-        res += `✅ **To'g'ri javoblar:** ${score} ta\n`;
-        if (incorrect > 0) res += `❌ **Xato javoblar:** ${incorrect} ta\n`;
-        if (missed > 0) res += `⚠️ **Javob berilmagan:** ${missed} ta\n`;
-        res += `⏱ **Sarflangan vaqt:** ${time.toFixed(1)} soniya\n`;
-        res += `📈 **Natija (Foiz):** ${percent}%\n\n`;
+        res += `👤 <b>Ishtirokchi:</b> ${m.usernames[uid]}\n\n`;
+        res += `📊 <b>O'ynalgan savollar:</b> ${total} ta\n`;
+        res += `✅ <b>To'g'ri javoblar:</b> ${score} ta\n`;
+        if (incorrect > 0) res += `❌ <b>Xato javoblar:</b> ${incorrect} ta\n`;
+        if (missed > 0) res += `⚠️ <b>Javob berilmagan:</b> ${missed} ta\n`;
+        res += `⏱ <b>Sarflangan vaqt:</b> ${time.toFixed(1)} soniya\n`;
+        res += `📈 <b>Natija (Foiz):</b> ${percent}%\n\n`;
         res += `${emoji} Ajoyib ko'rsatkich! Ushbu testni do'stlaringiz bilan ham ulashing.`;
     } else {
-        res += `📝 _${total} ta savol_\n\n`;
+        res += `📝 <i>${total} ta savol o'ynaldi</i>\n\n`;
         if (sorted.length === 0 || !m.answered || Object.keys(m.answered).length === 0) {
             res += "Hech kim ishtirok etmadi.\n";
         } else {
@@ -201,33 +205,64 @@ async function sendResults(matchId, ctx) {
                     let score = m.scores[uid] || 0;
                     let time = m.times[uid] || 0;
                     let percent = total > 0 ? Math.round((score / total) * 100) : 0;
-                    res += `${medal} ${m.usernames[uid]} – **${score}** ta to'g'ri (${time.toFixed(1)} sek, ${percent}%)\n`;
+                    res += `${medal} ${m.usernames[uid]} – <b>${score}</b> ta to'g'ri (${time.toFixed(1)} sek, ${percent}%)\n`;
                 }
             });
         }
         res += `\n🏆 G'oliblarni tabriklaymiz!`;
     }
 
-    const shareUrl = `https://t.me/${ctx.botInfo.username}?startgroup=match_${m.test.id}_t${m.timer}`;
+    const botUsername = ctx.botInfo?.username || bot.botInfo?.username || 'bot';
+    const shareUrl = `https://t.me/${botUsername}?startgroup=match_${m.test.id}_t${m.timer}`;
 
     delete activeMatches[matchId];
     for (let pid in pollTracker) { if (pollTracker[pid].matchId === matchId) delete pollTracker[pid]; }
 
     return ctx.reply(res, {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         ...Markup.inlineKeyboard([[Markup.button.url('↗️ Do\'stlarga ulashish', shareUrl)]])
-    });
+    }).catch(e => console.error("Result send error:", e.message));
 }
+
+// 🛑 STOP MATCH ACTION CALLBACK
+bot.action(/stopmatch\|(.+)/, async (ctx) => {
+    const matchId = ctx.match[1];
+    const m = activeMatches[matchId];
+    
+    if (!m || m.status !== 'playing') {
+        return ctx.answerCbQuery("❌ Test allaqachon tugagan yoki topilmadi.", { show_alert: true });
+    }
+
+    if (m.hostId !== ctx.from.id && !isAnyAdmin(ctx.from?.username)) {
+        return ctx.answerCbQuery("❌ Faqat testni boshlagan odam to'xtata oladi!", { show_alert: true });
+    }
+
+    m.status = 'stopped';
+    ctx.answerCbQuery("🛑 Test to'xtatilmoqda...");
+    await ctx.editMessageText("🛑 **Test to'xtatildi!** Joriy savol tugagach natijalar hisoblanadi.", { parse_mode: 'Markdown' }).catch(()=>{});
+});
 
 async function startQuiz(matchId, ctx) {
     const m = activeMatches[matchId];
     if (!m || m.status !== 'lobby') return;
 
     m.status = 'playing';
+    m.questionsPlayed = 0;
     await showCountdown(ctx, m.test.title);
 
+    // Drop the stop button
+    const stopMsg = await ctx.telegram.sendMessage(
+        ctx.chat.id, 
+        `🏃‍♂️ **Test ketyapti...**\n\nAgar testni erta yakunlamoqchi bo'lsangiz, pastdagi tugmani bosing.`, 
+        { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('🛑 Testni To\'xtatish', `stopmatch|${matchId}`)]]) }
+    ).catch(() => null);
+
     for (let i = 0; i < m.test.questions.length; i++) {
+        // Check if the host clicked stop before this question
+        if (activeMatches[matchId]?.status === 'stopped') break;
+
         m.questionStart = Date.now();
+        m.questionsPlayed++; // Track how many questions actually got sent
         const q = m.test.questions[i];
         const timeLimit = m.timer > 0 ? m.timer : 30;
         const correctOptId = Number(q.correct_option_id) || 0;
@@ -240,20 +275,22 @@ async function startQuiz(matchId, ctx) {
                 { 
                     type: 'quiz', 
                     correct_option_id: correctOptId, 
-                    is_anonymous: false, 
+                    is_anonymous: false,
                     open_period: timeLimit 
                 }
             );
             
-            pollTracker[pollMsg.poll.id] = { 
+            pollTracker[String(pollMsg.poll.id)] = { 
                 matchId: matchId, 
                 correctOpt: correctOptId,
-                answeredUsers: new Set() // Takroriy javob oldini olish
+                answeredUsers: new Set()
             };
-        } catch (e) { console.error("Poll error:", e.message); }
+        } catch (e) { console.error("Poll Send Error:", e.message); }
 
         await sleep((timeLimit * 1000) + 1500);
     }
+
+    if (stopMsg) await ctx.telegram.deleteMessage(ctx.chat.id, stopMsg.message_id).catch(() => null);
 
     await sendResults(matchId, ctx);
 }
@@ -288,7 +325,8 @@ bot.start(async (ctx) => {
         activeMatches[matchId] = {
             hostId: Number(ctx.from.id), test: test, players: new Set(),
             scores: {}, usernames: {}, times: {}, answered: {},
-            timer: timeLimit, status: 'lobby', questionStart: 0, isSolo: false
+            timer: timeLimit, status: 'lobby', questionStart: 0, isSolo: false,
+            questionsPlayed: 0
         };
 
         return ctx.reply(`🎲 **${test.title}**\n\n🗡 Savollar soni: ${test.questions.length}\n⏱ Vaqt: ${timeLimit > 0 ? timeLimit + ' soniya' : 'Cheksiz (30s)'}\n\n🏁 Boshlash uchun kamida 2 kishi tayyor bo'lishi kerak.`,
@@ -404,7 +442,8 @@ bot.action(/play\|(my|gl)\|(.+)\|(\d+)/, async (ctx) => {
         timer: time, 
         status: 'lobby', 
         questionStart: 0, 
-        isSolo: true
+        isSolo: true,
+        questionsPlayed: 0
     };
 
     await ctx.deleteMessage().catch(() => { });
@@ -449,7 +488,9 @@ bot.action(/join\|(.+)/, async (ctx) => {
 bot.on('poll_answer', (ctx) => {
     try {
         const answer = ctx.pollAnswer;
-        const trk = pollTracker[answer.poll_id];
+        const pollId = String(answer.poll_id); 
+        const trk = pollTracker[pollId];
+        
         if (!trk) return;
         
         const m = activeMatches[trk.matchId];
@@ -458,7 +499,6 @@ bot.on('poll_answer', (ctx) => {
         const uid = Number(answer.user.id);
 
         if (m.players.has(uid)) {
-            // Takroriy bosishlarning oldini olish
             if (!trk.answeredUsers) trk.answeredUsers = new Set();
             if (trk.answeredUsers.has(uid)) return;
             trk.answeredUsers.add(uid);
@@ -476,7 +516,7 @@ bot.on('poll_answer', (ctx) => {
                 m.scores[uid] = (m.scores[uid] || 0) + 1;
             }
         }
-    } catch (e) { console.error("Poll error:", e.message); }
+    } catch (e) { console.error("Poll Answer Error:", e.message); }
 });
 
 // ==========================================
@@ -484,7 +524,18 @@ bot.on('poll_answer', (ctx) => {
 // ==========================================
 bot.action('admin_create_gl', (ctx) => { ctx.answerCbQuery().catch(() => { }); ctx.session.step = 'name_gl'; return ctx.reply("📝 Umumiy test nomini kiriting:"); });
 bot.action('create_my_test', (ctx) => { ctx.answerCbQuery().catch(() => { }); ctx.session.step = 'name_my'; return ctx.reply("📝 Shaxsiy testingiz nomini kiriting:"); });
-bot.action(/addpoll\|(my|gl)\|(.+)/, (ctx) => { ctx.answerCbQuery().catch(() => { }); ctx.session.step = 'addp'; ctx.session.target = ctx.match[2]; ctx.session.type = ctx.match[1]; return ctx.reply("📥 Menga tayyor Quiz (Viktorina) pollarni forward qiling yoki yarating.\n\nBarcha savollarni yuborib bo'lgach, pastdagi 'Tugatish' tugmasini bosing.", Markup.inlineKeyboard([[Markup.button.callback("✅ Tugatish", 'stop_poll')]])); });
+
+bot.action(/addpoll\|(my|gl)\|(.+)/, (ctx) => { 
+    ctx.answerCbQuery().catch(() => { }); 
+    ctx.session.step = 'addp'; 
+    ctx.session.target = ctx.match[2]; 
+    ctx.session.type = ctx.match[1]; 
+    return ctx.reply("📥 Menga tayyor Quiz (Viktorina) yuboring YOKI quyidagi matn formatida yozing:\n\n<code>1. Savol matni\n- Xato javob\n+ To'g'ri javob\n- Xato javob</code>\n\nBarcha savollarni yuborib bo'lgach, pastdagi 'Tugatish' tugmasini bosing.", {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([[Markup.button.callback("✅ Tugatish", 'stop_poll')]])
+    }); 
+});
+
 bot.action(/trans\|(my|gl)\|(.+)/, (ctx) => { ctx.answerCbQuery().catch(() => { }); ctx.session.step = 'tr_lang'; ctx.session.target = ctx.match[2]; ctx.session.type = ctx.match[1]; return ctx.reply("🔤 Qaysi tilga tarjima qilamiz? (Masalan: ru, en, uz)"); });
 bot.action('stop_poll', (ctx) => { ctx.answerCbQuery().catch(() => { }); ctx.session.step = null; backupData(); return ctx.editMessageText("✅ Saqlandi va yakunlandi!").catch(() => { }); });
 bot.action(/del\|(my|gl)\|(.+)/, (ctx) => { ctx.answerCbQuery().catch(() => { }); if (ctx.match[1] === 'gl') delete globalTestsDB[ctx.match[2]]; else delete userTestsDB[ctx.match[2]]; backupData(); return ctx.editMessageText("🗑️ Test muvaffaqiyatli o'chirildi."); });
@@ -497,7 +548,9 @@ bot.action('sys_add_chan', (ctx) => { ctx.answerCbQuery().catch(() => { }); ctx.
 bot.action('sys_rem_chan', (ctx) => { ctx.answerCbQuery().catch(() => { }); ctx.session.step = 'sys_rem_chan'; return ctx.reply(`Joriy kanallar:\n${Array.from(requiredChannels).join('\n')}\n\nO'chirish uchun kanalni yuboring:`); });
 bot.action('sys_bc_users', (ctx) => { ctx.answerCbQuery().catch(() => { }); ctx.session.step = 'bc_users'; return ctx.reply("📢 Barcha foydalanuvchilarga yuboriladigan xabarni (rasm/video/matn) jo'nating:"); });
 
-// ALL-PURPOSE MESSAGE CATCHER
+// ==========================================
+// 10. ALL-PURPOSE MESSAGE CATCHER
+// ==========================================
 bot.on('message', async (ctx, next) => {
     if (isGroup(ctx)) return next();
     const s = ctx.session;
@@ -516,12 +569,64 @@ bot.on('message', async (ctx, next) => {
         return ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, undefined, `✅ Xabar ${count} kishiga yuborildi.`);
     }
 
-    if (ctx.message.poll && s.step === 'addp') {
+    // 🌟 FULLY VERIFIED: BOTH POLL AND TEXT PARSING WORK HERE 🌟
+    if (s.step === 'addp') {
         const t = s.type === 'gl' ? globalTestsDB[s.target] : userTestsDB[s.target];
         if (!t) return;
-        if (ctx.message.poll.type !== 'quiz') return ctx.reply("❌ Bu oddiy so'rovnoma! Menga Viktorina (Quiz) yuboring.");
-        t.questions.push({ question: ctx.message.poll.question, options: ctx.message.poll.options, correct_option_id: ctx.message.poll.correct_option_id });
-        return ctx.reply("✅ Qo'shildi! Yana yuboring yoki 'Tugatish' tugmasini bosing.", Markup.inlineKeyboard([[Markup.button.callback("✅ Tugatish", 'stop_poll')]]));
+
+        // 1. If it's a forwarded Quiz Poll
+        if (ctx.message.poll) {
+            if (ctx.message.poll.type !== 'quiz') return ctx.reply("❌ Bu oddiy so'rovnoma! Menga Viktorina (Quiz) yuboring.");
+            t.questions.push({ question: ctx.message.poll.question, options: ctx.message.poll.options, correct_option_id: ctx.message.poll.correct_option_id });
+            backupData();
+            return ctx.reply(`✅ 1 ta savol qo'shildi! (Jami: ${t.questions.length} ta)\n\nYana yuboring yoki 'Tugatish' tugmasini bosing.`, Markup.inlineKeyboard([[Markup.button.callback("✅ Tugatish", 'stop_poll')]]));
+        }
+
+        // 2. If it's a Text Block
+        if (ctx.message.text) {
+            const txt = ctx.message.text;
+            const blocks = txt.split(/\n\s*\n/); 
+            let addedCount = 0;
+
+            for (let block of blocks) {
+                const lines = block.split('\n').map(l => l.trim()).filter(l => l);
+                if (lines.length < 3) continue;
+
+                let questionText = lines[0].replace(/^\d+[\.\)]\s*/, ''); 
+                let options = [];
+                let correctOptionId = -1;
+
+                for (let i = 1; i < lines.length; i++) {
+                    let line = lines[i];
+                    if (line.startsWith('+') || line.startsWith('-')) {
+                        const isCorrect = line.startsWith('+');
+                        const optText = line.substring(1).trim();
+                        
+                        if (optText) {
+                            if (isCorrect) correctOptionId = options.length;
+                            options.push({ text: optText.substring(0, 100) }); 
+                        }
+                    }
+                }
+
+                if (options.length >= 2 && correctOptionId !== -1) {
+                    t.questions.push({
+                        question: questionText.substring(0, 300), 
+                        options: options,
+                        correct_option_id: correctOptionId
+                    });
+                    addedCount++;
+                }
+            }
+
+            if (addedCount > 0) {
+                backupData();
+                return ctx.reply(`✅ Matndan ${addedCount} ta savol ajratib olindi va qo'shildi! (Jami: ${t.questions.length} ta)\n\nYana yuboring yoki 'Tugatish' tugmasini bosing.`, Markup.inlineKeyboard([[Markup.button.callback("✅ Tugatish", 'stop_poll')]]));
+            } else {
+                return ctx.reply("⚠️ Matnda to'g'ri formatdagi savol topilmadi. Iltimos tekshiring:\n\n1. Savol?\n- Xato\n+ To'g'ri\n- Xato");
+            }
+        }
+        return; // Prevents fallthrough if they send a photo or something weird while in "addp" mode
     }
 
     if (ctx.message.text) {
@@ -581,16 +686,29 @@ bot.on('message', async (ctx, next) => {
             s.target = id;
             s.type = isGl ? 'gl' : 'my';
             backupData();
-            return ctx.reply(`✅ **"${txt}"** yaratildi!\n\nEndi menga to'g'ridan-to'g'ri Quiz/Viktorina savollaringizni yuboring. Tugatgach pastdagi tugmani bosing:`, Markup.inlineKeyboard([[Markup.button.callback("✅ Tugatish", 'stop_poll')]]));
+            return ctx.reply(`✅ **"${txt}"** yaratildi!\n\nEndi menga to'g'ridan-to'g'ri Quiz/Viktorina savollaringizni yuboring yoki quyidagi matn formatida yozing:\n\n1. Savol matni\n- Xato javob\n+ To'g'ri javob\n- Xato javob\n\nTugatgach pastdagi tugmani bosing:`, Markup.inlineKeyboard([[Markup.button.callback("✅ Tugatish", 'stop_poll')]]));
         }
     }
     return next();
 });
 
 // ==========================================
-// 10. BOOT AND SERVER INIT
+// 11. BOOT AND SERVER INIT
 // ==========================================
 async function startApp() {
+    try {
+        console.log("🚀 Launching Telegram Bot FIRST...");
+        await bot.launch({
+            dropPendingUpdates: true,
+            allowedUpdates: ['message', 'callback_query', 'poll', 'poll_answer', 'my_chat_member', 'chat_member']
+        });
+        
+        bot.botInfo = await bot.telegram.getMe();
+        console.log(`✅ BOT ONLINE: @${bot.botInfo.username}`);
+    } catch (e) {
+        console.error("❌ CRITICAL BOT LAUNCH ERROR:", e.message);
+    }
+
     try {
         console.log("⏳ Connecting to MongoDB...");
         await mongoose.connect(MONGO_URI);
@@ -602,17 +720,10 @@ async function startApp() {
             (d.admins || []).forEach(a => adminsDB.add(a));
             if (d.channels) { requiredChannels.clear(); d.channels.forEach(c => requiredChannels.add(c)); }
         }
-
-        console.log("🚀 Launching Telegram Bot...");
-        // BARCHA EVENTLARNI ESHITISH (Eng muhim qism)
-        await bot.launch({
-            dropPendingUpdates: true,
-            allowedUpdates: ['message', 'callback_query', 'poll', 'poll_answer', 'my_chat_member', 'chat_member']
-        });
-        
-        bot.botInfo = await bot.telegram.getMe();
-        console.log(`✅ UX-OPTIMIZED BOT ONLINE: @${bot.botInfo.username}`);
-    } catch (e) { console.error("❌ CRITICAL ERROR:", e.message); }
+        console.log("✅ DB CONNECTED & DATA LOADED!");
+    } catch (e) { 
+        console.error("❌ DATABASE BLOCKED:", e.message); 
+    }
 }
 
 const port = process.env.PORT || 3000;
