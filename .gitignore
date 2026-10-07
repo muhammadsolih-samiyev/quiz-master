@@ -1,0 +1,8 @@
+.env
+testlar.db
+__pycache__/
+*.pyc
+venv/
+env/
+.idea/
+.vscode/
