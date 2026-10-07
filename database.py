@@ -134,6 +134,11 @@ async def get_book(book_id):
         async with db.execute('SELECT * FROM books WHERE id = ?', (book_id,)) as cursor:
             return await cursor.fetchone()
 
+async def delete_book(book_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('DELETE FROM books WHERE id = ?', (book_id,))
+        await db.commit()
+
 async def add_channel(username):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute('INSERT OR IGNORE INTO channels (username) VALUES (?)', (username,))

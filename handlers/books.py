@@ -5,8 +5,9 @@ from aiogram.fsm.context import FSMContext
 from config import ADMINS
 from keyboards.reply import get_cancel_menu, get_admin_menu, get_main_menu
 from keyboards.inline import get_books_keyboard
-from database import add_book, get_books, get_book
+from database import add_book, get_books, get_book, delete_book
 from utils.states import AddBookState
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 router = Router()
 
@@ -70,5 +71,24 @@ async def send_book(callback: CallbackQuery):
         return
     
     text = f"📖 <b>{book['title']}</b>\n\n📝 {book['description']}"
-    await callback.message.answer_document(document=book['file_id'], caption=text, parse_mode="HTML")
+    
+    markup = None
+    if callback.from_user.id in ADMINS:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="❌ Kitobni o'chirish", callback_data=f"delbook_{book_id}")
+        markup = builder.as_markup()
+        
+    await callback.message.answer_document(document=book['file_id'], caption=text, parse_mode="HTML", reply_markup=markup)
     await callback.answer()
+
+@router.callback_query(F.data.startswith("delbook_"))
+async def delete_book_handler(callback: CallbackQuery):
+    if callback.from_user.id not in ADMINS:
+        await callback.answer("Sizda huquq yo'q!", show_alert=True)
+        return
+        
+    book_id = int(callback.data.split("_")[1])
+    await delete_book(book_id)
+    
+    await callback.message.delete()
+    await callback.answer("Kitob o'chirildi!", show_alert=True)
